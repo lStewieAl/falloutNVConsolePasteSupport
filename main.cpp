@@ -32,7 +32,7 @@ DIHookControl *g_DIHookCtrl = NULL;
 //function prototypes
 void patchOnConsoleInput();
 void __fastcall CheckCTRLV();
-static const char* GetClipboardText();
+/*static*/ void GetClipboardText(char** buffer);
 void __fastcall PrintToConsoleInput(UInt32 character);
 
 static const UInt32 handleNormal = 0x71B210;
@@ -40,7 +40,7 @@ static const UInt32 handleNormal = 0x71B210;
 static const UInt32 getConsoleStringLocation = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
 
-static char clipboardBuffer[256];
+static char clipboardBuffer[512];
 
 
 
@@ -160,15 +160,12 @@ void patchOnConsoleInput() {
 }
 
 
-/*__declspec(naked) */void PrintClipBoardToConsoleInput() {
+void PrintClipBoardToConsoleInput() {
 	char character = 0;
 	int i = 0;
 	UInt32 c = 0;
-	char clipboardText[] = "PLEASE WORK\0";
-	
-	//clipboardText = GetClipboardText();
-   // _MESSAGE("%s", clipboardText);
-	
+	char* clipboardText = "";
+	GetClipboardText(&clipboardText);
 
 	for(; clipboardText[i] != '\0'; i++) {
       PrintToConsoleInput(clipboardText[i]);
@@ -176,23 +173,23 @@ void patchOnConsoleInput() {
 }
 
 
-static const char* GetClipboardText()
+void GetClipboardText(char** buffer)
 {
   // Try opening the clipboard
 	if (! OpenClipboard(NULL)) {
-      return NULL;
+      return;
 	}
 
   // Get handle of clipboard object for ANSI text
   HANDLE hData = GetClipboardData(CF_TEXT);
   if (hData == NULL) {
-    return NULL;
+    return;
   }
 
   // Lock the handle to get the actual text pointer
   char * pszText = static_cast<char*>( GlobalLock(hData) );
   if (pszText == NULL) {
-    return NULL;
+    return;
   }
   
   // Save text in a string class instance
@@ -203,11 +200,10 @@ static const char* GetClipboardText()
 
   // Release the clipboard
   CloseClipboard();
-
-  return text.c_str();
+  *buffer = strdup(text.c_str());
 }
 
-void __fastcall PrintToConsoleInput(UInt32 c)
+void __fastcall PrintToConsoleInput(UInt32 characterToPrint)
 {
 	__asm
 	{
@@ -216,7 +212,7 @@ void __fastcall PrintToConsoleInput(UInt32 c)
         call  getConsoleStringLocation // sets eax to location of console input String
         push  eax
       sendCharToConsoleInput:
-        mov   eax, c
+        mov   eax, characterToPrint
         pop   ecx
         push  eax
         call sendCharToInput
@@ -225,8 +221,8 @@ void __fastcall PrintToConsoleInput(UInt32 c)
 
 
 /*
-  eax will contain the character pressed, v's code is 0x76
-  ecx contains the location of the input buffer to write to
+  EAX will contain the character pressed, v's code is 0x76
+  ECX contains the location of the input buffer to write to
 */
 __declspec(naked) void __fastcall CheckCTRLV()
 {
