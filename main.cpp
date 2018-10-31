@@ -6,11 +6,7 @@
 #include <string>
 #include <windows.h>
 
-#ifdef NOGORE
-IDebugLog		gLog("nvse_plugin_console_clipboard.log");
-#else
-IDebugLog		gLog("nvse_plugin_console_clipboard.log");
-#endif
+IDebugLog  gLog("nvse_plugin_console_clipboard.log");
 
 NVSEInterface * SaveNVSE;
 DIHookControl *g_DIHookCtrl = NULL;
@@ -24,7 +20,7 @@ void __fastcall PrintToConsoleInput(UInt32 character);
 
 static const UInt32 getConsoleStringLocation = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
-
+static char* clipboardText = (char*) malloc(256);
 
 
 extern "C" {
@@ -50,20 +46,6 @@ bool NVSEPlugin_Query(const NVSEInterface * nvse, PluginInfo * info)
 			_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
 			return false;
 		}
-
-#ifdef NOGORE
-		if(!nvse->isNogore)
-		{
-			_ERROR("incorrect runtime edition (got %08X need %08X (nogore))", nvse->isNogore, 1);
-			return false;
-		}
-#else
-		if(nvse->isNogore)
-		{
-			_ERROR("incorrect runtime edition (got %08X need %08X (standard))", nvse->isNogore, 0);
-			return false;
-		}
-#endif
 	}
 	else
 	{
@@ -72,14 +54,9 @@ bool NVSEPlugin_Query(const NVSEInterface * nvse, PluginInfo * info)
 			_ERROR("incorrect editor version (got %08X need at least %08X)", nvse->editorVersion, CS_VERSION_1_4_0_518);
 			return false;
 		}
-#ifdef NOGORE
-		_ERROR("Editor only uses standard edition, closing.");
-		return false;
-#endif
 	}
 
 	// version checks pass
-
 	return true;
 }
 
@@ -105,11 +82,24 @@ void patchOnConsoleInput() {
 
 
 void PrintClipBoardToConsoleInput() {
-    char* clipboardText = "";
     GetClipboardText(&clipboardText);
+    
+	char c;
+    for(int i=0,c=clipboardText[0]; c != '\0' && i < 256 /* limit size to buffer size */; i++) {
+		c = clipboardText[i];
+		switch(c) {
+		  /* replace newlines with spaces */
+          case '\n':
+		  case '\r':
+			  PrintToConsoleInput(' ');
+			  break;
+		  /* remove pipe characters */
+		  case '|':
+			  break;
 
-    for(int i=0,c=0; clipboardText[i] != '\0'; i++) {
-        PrintToConsoleInput(clipboardText[i]);
+		  default:
+			  PrintToConsoleInput(clipboardText[i]);
+		}
 	}
 }
 
@@ -141,7 +131,7 @@ void GetClipboardText(char** buffer)
 
   // Release the clipboard
   CloseClipboard();
-  *buffer = strdup(text.c_str());
+  strncpy(*buffer, text.c_str(), 255);
 }
 
 void __fastcall PrintToConsoleInput(UInt32 characterToPrint)
