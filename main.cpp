@@ -1,8 +1,4 @@
 #include "nvse/nvse/PluginAPI.h"
-#include "nvse/nvse/CommandTable.h"
-#include "nvse/nvse/GameAPI.h"
-#include "nvse/nvse/ParamInfos.h"
-#include "nvse/nvse/GameObjects.h"
 #include "common/IDebugLog.h"
 #include "nvse/nvse/nvse_version.h"
 #include "nvse/nvse/Hooks_DirectInput8Create.h"
@@ -16,31 +12,18 @@ IDebugLog		gLog("nvse_plugin_console_clipboard.log");
 IDebugLog		gLog("nvse_plugin_console_clipboard.log");
 #endif
 
-PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
-
-NVSEMessagingInterface* g_msg;
 NVSEInterface * SaveNVSE;
-NVSECommandTableInterface * g_cmdTable;
-const CommandInfo * g_TFC;
-NVSEScriptInterface* g_script;
 DIHookControl *g_DIHookCtrl = NULL;
 
-#define ExtractArgsEx(...) g_script->ExtractArgsEx(__VA_ARGS__)
-#define ExtractFormatStringArgs(...) g_script->ExtractFormatStringArgs(__VA_ARGS__)
-
-
-//function prototypes
+// function prototypes
 void patchOnConsoleInput();
 void __fastcall CheckCTRLV();
-/*static*/ void GetClipboardText(char** buffer);
+void GetClipboardText(char** buffer);
 void __fastcall PrintToConsoleInput(UInt32 character);
 
-static const UInt32 handleNormal = 0x71B210;
 
 static const UInt32 getConsoleStringLocation = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
-
-static char clipboardBuffer[512];
 
 
 
@@ -48,8 +31,6 @@ extern "C" {
 
 bool NVSEPlugin_Query(const NVSEInterface * nvse, PluginInfo * info)
 {
-	_MESSAGE("query");
-
 	// fill out the info structure
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "nvse_plugin_console_clipboard";
@@ -102,73 +83,33 @@ bool NVSEPlugin_Query(const NVSEInterface * nvse, PluginInfo * info)
 	return true;
 }
 
-void MessageHandler(NVSEMessagingInterface::Message* msg)
-{
-	switch (msg->type)
-	{
-		case NVSEMessagingInterface::kMessage_PostLoad:
-			patchOnConsoleInput();
-	}
-}
-
 
 bool NVSEPlugin_Load(const NVSEInterface * nvse)
 {
-	_MESSAGE("load");
 
-	g_pluginHandle = nvse->GetPluginHandle();
+    NVSEDataInterface *nvseData = (NVSEDataInterface*)nvse->QueryInterface(kInterface_Data);
+    g_DIHookCtrl = (DIHookControl*)nvseData->GetSingleton(NVSEDataInterface::kNVSEData_DIHookControl);
 
-	// save the NVSEinterface in cas we need it later
-	SaveNVSE = (NVSEInterface *)nvse;
-  
-  // register to receive messages from NVSE
-	NVSEMessagingInterface* msgIntfc = (NVSEMessagingInterface*)nvse->QueryInterface(kInterface_Messaging);
-	msgIntfc->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
-  
-  NVSEDataInterface *nvseData = (NVSEDataInterface*)nvse->QueryInterface(kInterface_Data);
-	g_DIHookCtrl = (DIHookControl*)nvseData->GetSingleton(NVSEDataInterface::kNVSEData_DIHookControl);
+	patchOnConsoleInput();
 
-	g_script = (NVSEScriptInterface*)nvse->QueryInterface(kInterface_Script);
-
-	/***************************************************************************
-	 *	
-	 *	READ THIS!
-	 *	
-	 *	Before releasing your plugin, you need to request an opcode range from
-	 *	the NVSE team and set it in your first SetOpcodeBase call. If you do not
-	 *	do this, your plugin will create major compatibility issues with other
-	 *	plugins, and will not load in release versions of NVSE. See
-	 *	nvse_readme.txt for more information.
-	 *	
-	 **************************************************************************/
-
-	return true;
+    return true;
 }
 
 };
 
 
-void copyString(const std::string& input, char *dst, size_t dst_size)
-{
-    strncpy(dst, input.c_str(), dst_size - 1);
-    dst[dst_size - 1] = '\0';
-}
-
 void patchOnConsoleInput() {
-  UInt32 onConsoleInputAddress = 0x70E09E;
-	WriteRelJump(onConsoleInputAddress, (UInt32) CheckCTRLV);
+    UInt32 onConsoleInputAddress = 0x70E09E;
+    WriteRelJump(onConsoleInputAddress, (UInt32) CheckCTRLV);
 }
 
 
 void PrintClipBoardToConsoleInput() {
-	char character = 0;
-	int i = 0;
-	UInt32 c = 0;
-	char* clipboardText = "";
-	GetClipboardText(&clipboardText);
+    char* clipboardText = "";
+    GetClipboardText(&clipboardText);
 
-	for(; clipboardText[i] != '\0'; i++) {
-      PrintToConsoleInput(clipboardText[i]);
+    for(int i=0,c=0; clipboardText[i] != '\0'; i++) {
+        PrintToConsoleInput(clipboardText[i]);
 	}
 }
 
@@ -213,7 +154,7 @@ void __fastcall PrintToConsoleInput(UInt32 characterToPrint)
         push  eax
       sendCharToConsoleInput:
         mov   eax, characterToPrint
-        pop   ecx
+        pop   ecx  // eax = location of console input String
         push  eax
         call sendCharToInput
 	}
@@ -245,7 +186,7 @@ __declspec(naked) void __fastcall CheckCTRLV()
         jmp done
       handleNormalInput:
 		pop ecx
-        call handleNormal
+        call sendCharToInput
       done:
 		jmp retnAddr
   }
