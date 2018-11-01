@@ -109,7 +109,6 @@ void patchOnConsoleInput() {
 
 void PrintClipBoardToConsoleInput() {
     GetClipboardText(&clipboardText);
-	char c;
     for(int i=0,c=clipboardText[0]; c != '\0' && i < 256 /* limit size to buffer size */; i++) {
 		c = clipboardText[i];
 		switch(c) {
@@ -193,23 +192,74 @@ int indexOfChar(char* text, char c) {
     return -1;
 }
 
+int getCharsSinceSpace(char* text, int caretIndex) {
+   char* caret = text + caretIndex;
+   int charsSinceSpace = 0;
+
+   for(; caret-- > text; charsSinceSpace++) {
+	   if (*caret == ' ') return charsSinceSpace;
+   }
+   return charsSinceSpace;
+}
+
+int getCharsTillSpace(char* text, int caretIndex) {
+   char* caret = text + caretIndex;
+
+   int charsTillSpace = 0;
+
+   for(; *caret++ != '\0' && *caret != ' '; charsTillSpace++) {}
+   return charsTillSpace;
+}
+
 void DeletePreviousWord() {
+	static const int backspaceChar = 0x80000000;
     char* consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return;
 
 	int caretIndex = indexOfChar(consoleInput, '|');
+	int charsToDelete = getCharsSinceSpace(consoleInput, caretIndex);
+	for(; charsToDelete > 0; charsToDelete--) {
+      PrintToConsoleInput(backspaceChar);
+	}
 }
 
 void DeleteNextWord() {
-	;
+	static const int deleteChar = 0x80000007;
+    char* consoleInput = getConsoleInputString();
+	if (!consoleInput || !strlen(consoleInput)) return;
+
+	int caretIndex = indexOfChar(consoleInput, '|');
+	int charsToDelete = getCharsTillSpace(consoleInput, caretIndex);
+	for(; charsToDelete > 0; charsToDelete--) {
+      PrintToConsoleInput(deleteChar);
+	}
 }
 
+
 void MoveToStartOfWord() {
-	;
+	static const int moveLeftChar = 0x80000001;
+    char* consoleInput = getConsoleInputString();
+	
+	if (!consoleInput || !strlen(consoleInput)) return;
+
+	int caretIndex = indexOfChar(consoleInput, '|');
+	
+	int charsToMove = getCharsSinceSpace(consoleInput, caretIndex);
+	for(; charsToMove > 0; charsToMove--) {
+      PrintToConsoleInput(moveLeftChar);
+	}
 }
 
 void MoveToEndOfWord() {
-	;
+	static const int moveRightCharacter = 0x80000002;
+    char* consoleInput = getConsoleInputString();
+	if (!consoleInput || !strlen(consoleInput)) return;
+
+	int caretIndex = indexOfChar(consoleInput, '|');
+	int charsToMove = getCharsTillSpace(consoleInput, caretIndex);
+	for(; charsToMove > 0; charsToMove--) {
+      PrintToConsoleInput(moveRightCharacter);
+	}
 }
 
 /*
@@ -236,17 +286,21 @@ __declspec(naked) void __fastcall CheckCTRLV()
         je handleV
 	  
       checkBackSpace:
-		cmp eax, 0x4C4B400
+		cmp eax, 0x80000000
 		je handleBack
       checkLeftArrow:
-		cmp eax, 0x4C4B401
+		cmp eax, 0x80000001
 		je handleLeft
       checkRightArrow:
-		cmp eax, 0x4C4B402
+		cmp eax, 0x80000002
 	    je handleRight
       checkDelete:
-		cmp eax, 0x4C4B407
-		je handleDelete
+		cmp eax, 0x80000007
+		jne handleNormalInput
+      
+      handleDelete:
+        call DeleteNextWord
+        jmp done
       
       handleV:
         call PrintClipBoardToConsoleInput
@@ -260,11 +314,10 @@ __declspec(naked) void __fastcall CheckCTRLV()
       handleRight:
         call MoveToEndOfWord
         jmp done
-      handleDelete:
-        call DeleteNextWord
-        jmp done
+
 	  
       handleNormalInput:
+		pop ecx
         call sendCharToInput
 		jmp retnAddr
       done:
