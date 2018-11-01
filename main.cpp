@@ -133,18 +133,26 @@ void GetClipboardText(char** buffer)
 {
   // Try opening the clipboard
 	if (! OpenClipboard(NULL)) {
-      return;
+		*buffer[0] = '\0';
+        return;
 	}
 
   // Get handle of clipboard object for ANSI text
   HANDLE hData = GetClipboardData(CF_TEXT);
   if (hData == NULL) {
+	CloseClipboard();
+	// clipboard empty so return empty string
+	*buffer[0] = '\0';
     return;
   }
 
   // Lock the handle to get the actual text pointer
   char * pszText = static_cast<char*>( GlobalLock(hData) );
   if (pszText == NULL) {
+    GlobalUnlock( hData );
+    CloseClipboard();
+	// clipboard empty so return empty string
+	*buffer[0] = '\0';
     return;
   }
   
@@ -193,22 +201,31 @@ int indexOfChar(char* text, char c) {
 }
 
 int getCharsSinceSpace(char* text, int caretIndex) {
-   char* caret = text + caretIndex;
-   int charsSinceSpace = 0;
+  if (caretIndex == 0) return 0;
 
-   for(; caret-- > text; charsSinceSpace++) {
-	   if (*caret == ' ') return charsSinceSpace;
-   }
-   return charsSinceSpace;
+  char* caret = text + caretIndex;
+  int charsSinceSpace = 0;
+
+  while(*--caret == ' ') charsSinceSpace++;
+  while(*--caret != ' ' && caret >= text) charsSinceSpace++;
+  return charsSinceSpace + 1;
 }
 
 int getCharsTillSpace(char* text, int caretIndex) {
-   char* caret = text + caretIndex;
+  char* caret = text + caretIndex;
+  if (*++caret == '\0') return 0;
 
-   int charsTillSpace = 0;
+  int charsTillSpace = 0;
 
-   for(; *caret++ != '\0' && *caret != ' '; charsTillSpace++) {}
-   return charsTillSpace;
+  while(*caret == ' ') {
+    charsTillSpace++;
+    caret++;
+  }
+
+  while(*caret != '\0' && *caret++ != ' ') {
+    charsTillSpace++;
+  }
+  return charsTillSpace;
 }
 
 void DeletePreviousWord() {
