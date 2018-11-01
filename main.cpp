@@ -28,7 +28,7 @@ int indexOfChar(char* text, char c);
 
 static const UInt32 getConsoleStringLocation = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
-static char* clipboardText = (char*) malloc(256);
+static char* clipboardText = (char*) malloc(512);
 
 
 extern "C" {
@@ -109,7 +109,7 @@ void patchOnConsoleInput() {
 
 void PrintClipBoardToConsoleInput() {
     GetClipboardText(&clipboardText);
-    for(int i=0,c=clipboardText[0]; c != '\0' && i < 256 /* limit size to buffer size */; i++) {
+    for(int i=0,c=clipboardText[0]; c != '\0' && i < 511 /* limit size to console max script size */; i++) {
 		c = clipboardText[i];
 		switch(c) {
 		  /* replace newlines with spaces */
@@ -164,7 +164,7 @@ void GetClipboardText(char** buffer)
 
   // Release the clipboard
   CloseClipboard();
-  strncpy(*buffer, text.c_str(), 255);
+  strncpy(*buffer, text.c_str(), 511);
 }
 
 void __fastcall PrintToConsoleInput(UInt32 characterToPrint)
@@ -202,12 +202,13 @@ int indexOfChar(char* text, char c) {
 
 int getCharsSinceSpace(char* text, int caretIndex) {
   if (caretIndex == 0) return 0;
-
   char* caret = text + caretIndex;
+
   int charsSinceSpace = 0;
 
-  while(*--caret == ' ') charsSinceSpace++;
-  while(*--caret != ' ' && caret >= text) charsSinceSpace++;
+  while(!isalnum(*--caret)) charsSinceSpace++;
+  while(isalnum(*--caret) && caret >= text) charsSinceSpace++;
+  
   return charsSinceSpace + 1;
 }
 
@@ -217,15 +218,10 @@ int getCharsTillSpace(char* text, int caretIndex) {
 
   int charsTillSpace = 0;
 
-  while(*caret == ' ') {
-    charsTillSpace++;
-    caret++;
-  }
-
-  while(*caret != '\0' && *caret++ != ' ') {
-    charsTillSpace++;
-  }
-  return charsTillSpace;
+  while(isalnum(*caret++)) charsTillSpace++;
+  while(*caret != '\0' && !isalnum(*caret++)) charsTillSpace++;
+  
+  return charsTillSpace + 1;
 }
 
 void DeletePreviousWord() {
@@ -279,6 +275,29 @@ void MoveToEndOfWord() {
 	}
 }
 
+void clearInputString() {
+	static const int moveRightCharacter = 0x80000002;
+    char* buffer = getConsoleInputString();
+	buffer[0] = '\0';
+	PrintToConsoleInput(moveRightCharacter); //any control character would work here
+}
+
+void copyInputToClipboard() {
+	char* inputString = getConsoleInputString();
+	OpenClipboard(NULL);
+	EmptyClipboard();	
+	HGLOBAL hg=GlobalAlloc(GMEM_MOVEABLE,strlen(inputString));
+	if (!hg){
+		CloseClipboard();
+		return;
+	}
+	memcpy(GlobalLock(hg),inputString,strlen(inputString));
+	GlobalUnlock(hg);
+	SetClipboardData(CF_TEXT,hg);
+	CloseClipboard();
+	GlobalFree(hg);
+}
+
 /*
   EAX will contain the character pressed, v's code is 0x76
   ECX contains the location of the input buffer to write to
@@ -299,9 +318,14 @@ __declspec(naked) void __fastcall CheckCTRLV()
     checkOtherKeys:
       
       checkV:
-        cmp eax, 0x76 // compare input to 'v'
+        cmp eax, 0x76 // 'v' in ascii
         je handleV
-	  
+      checkC:
+		cmp eax, 0x63 // 'c' in ascii
+		je handleC
+      checkX:
+		cmp eax, 0x78
+		je handleX
       checkBackSpace:
 		cmp eax, 0x80000000
 		je handleBack
@@ -322,6 +346,12 @@ __declspec(naked) void __fastcall CheckCTRLV()
       handleV:
         call PrintClipBoardToConsoleInput
         jmp done
+      handleC:
+		call copyInputToClipboard
+		jmp done
+      handleX:
+		call clearInputString
+		jmp done
       handleBack:
         call DeletePreviousWord
         jmp done
