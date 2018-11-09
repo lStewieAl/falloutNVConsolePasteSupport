@@ -16,15 +16,17 @@ NVSEInterface *SaveNVSE;
 DIHookControl *g_DIHookCtrl = NULL;
 
 // function prototypes
+void handleIniOptions();
 void patchOnConsoleInput();
 void __fastcall CheckCTRLV();
 void GetClipboardText(char **buffer);
 void __fastcall PrintToConsoleInput(UInt32 character);
 char *getConsoleInputString();
+bool versionCheck(const NVSEInterface* nvse);
 
 int indexOfChar(char *text, char c);
 
-static const UInt32 getConsoleStringLocation = 0x71B160;
+static const UInt32 GetConsoleManager = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
 static char *clipboardText = (char *)malloc(512);
 
@@ -39,39 +41,13 @@ extern "C" {
 	}
 
 	bool NVSEPlugin_Query(const NVSEInterface *nvse, PluginInfo *info) {
-		/* fill out the info structure */
 		info->infoVersion = PluginInfo::kInfoVersion;
 		info->name = "Console Clipboard";
 		info->version = 1;
 
-		/* handle ini options */
-		char filename[MAX_PATH];
-		GetModuleFileNameA(consolePasteHandle, filename, MAX_PATH);
-		strcpy((char *)(strrchr(filename, '\\') + 1), "nvse_console_clipboard.ini");
-		g_bReplaceNewLineWithEnter = GetPrivateProfileIntA("Main", "bReplaceNewLineWithEnter", 0, filename);
+		handleIniOptions();
 
-		/* version checks */
-		if (nvse->nvseVersion < NVSE_VERSION_INTEGER) {
-			_ERROR("NVSE version too old (got %08X expected at least %08X)", nvse->nvseVersion, NVSE_VERSION_INTEGER);
-			return false;
-		}
-
-		if (!nvse->isEditor) {
-			if (nvse->runtimeVersion < RUNTIME_VERSION_1_4_0_525) {
-				_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion,
-					RUNTIME_VERSION_1_4_0_525);
-				return false;
-			}
-
-		}
-		else {
-			if (nvse->editorVersion < CS_VERSION_1_4_0_518) {
-				_ERROR("incorrect editor version (got %08X need at least %08X)", nvse->editorVersion, CS_VERSION_1_4_0_518);
-				return false;
-			}
-		}
-		// version checks pass
-		return true;
+		return versionCheck(nvse);
 	}
 
 
@@ -86,6 +62,12 @@ extern "C" {
 
 };
 
+void handleIniOptions() {
+	char filename[MAX_PATH];
+	GetModuleFileNameA(consolePasteHandle, filename, MAX_PATH);
+	strcpy((char *)(strrchr(filename, '\\') + 1), "nvse_console_clipboard.ini");
+	g_bReplaceNewLineWithEnter = GetPrivateProfileIntA("Main", "bReplaceNewLineWithEnter", 0, filename);
+}
 
 void patchOnConsoleInput() {
 	UInt32 onConsoleInputAddress = 0x70E09E;
@@ -160,22 +142,45 @@ void __fastcall PrintToConsoleInput(UInt32 characterToPrint) {
 	{
 	getConsoleInputStringLocation:
 		push  00
-		call  getConsoleStringLocation // sets eax to location of console input String
+		call  GetConsoleManager // sets eax to location of console structure
 		push  eax
 	sendCharToConsoleInput:
 		mov   eax, characterToPrint
-		pop   ecx  // eax = location of console input String
+		pop   ecx  // eax = location of console struct
 		push  eax
 		call sendCharToInput
 	}
 }
 
+/* check 0x14 for | character then check each row starting at the bottom
+ * this is a hacky solution until I work out how to get the address properly
+ *  - it fails if the console output has a line with one | in it.
+ */
 char *getConsoleInputString() {
+	int consoleLineAddress = *((int*) 0x11F33A8) + 0x14;
+	char* consoleLine = NULL;
+
+	if (consoleLineAddress == NULL) return NULL;
+	consoleLine = *(char**) consoleLineAddress;
+
+	if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
+
+
+	for (int i = 0x2A8; i > 0x14; i -= 44) {
+		consoleLineAddress = *((int*)0x11F33A8) + i;
+		if(consoleLineAddress != NULL) {
+			consoleLine = *((char**) consoleLineAddress);
+			if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
+		}
+	}
+	return NULL;
+
+	/*
 	__asm
 	{
 		mov eax, dword ptr ds : [0x11F33A8]
 		mov eax, dword ptr ds : [eax+0x14]
-	}
+	}*/
 }
 
 int indexOfChar(char *text, char c) {
@@ -369,4 +374,14 @@ __declspec(naked) void __fastcall CheckCTRLV() {
 		pop ecx
 		jmp retnAddr
 	}
+}
+
+
+bool versionCheck(const NVSEInterface* nvse) {
+	if (nvse->isEditor) return false;
+	if (nvse->runtimeVersion < RUNTIME_VERSION_1_4_0_525) {
+		_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
+		return false;
+	}
+	return true;
 }
