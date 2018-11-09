@@ -11,6 +11,7 @@ HMODULE consolePasteHandle;
 
 /* 0 means replace with space */
 int g_bReplaceNewLineWithEnter = 0;
+const int MAX_BUFFER_SIZE = 512;
 
 NVSEInterface *SaveNVSE;
 DIHookControl *g_DIHookCtrl = NULL;
@@ -18,18 +19,31 @@ DIHookControl *g_DIHookCtrl = NULL;
 // function prototypes
 void handleIniOptions();
 void patchOnConsoleInput();
-void __fastcall CheckCTRLV();
+void __fastcall CheckCTRLHotkeys();
 void GetClipboardText(char **buffer);
+void PrintClipBoardToConsoleInput();
 void __fastcall PrintToConsoleInput(UInt32 character);
 char *getConsoleInputString();
 bool versionCheck(const NVSEInterface* nvse);
 
 int indexOfChar(char *text, char c);
 
+void DeletePreviousWord();
+void DeleteNextWord();
+void clearInputString();
+void MoveToEndOfWord();
+void MoveToStartOfWord();
+void copyInputToClipboard();
+
 static const UInt32 GetConsoleManager = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
-static char *clipboardText = (char *)malloc(512);
+static char *clipboardText = (char*) malloc(MAX_BUFFER_SIZE);
 
+static const int backspaceChar = 0x80000000;
+static const int rightArrowChar = 0x80000002;
+static const int leftArrowChar = 0x80000001;
+static const int deleteChar = 0x80000007;
+static const int enterChar = 0x80000008;
 
 extern "C" {
 
@@ -49,7 +63,6 @@ extern "C" {
 
 		return versionCheck(nvse);
 	}
-
 
 	bool NVSEPlugin_Load(const NVSEInterface *nvse) {
 
@@ -71,20 +84,91 @@ void handleIniOptions() {
 
 void patchOnConsoleInput() {
 	UInt32 onConsoleInputAddress = 0x70E09E;
-	WriteRelJump(onConsoleInputAddress, (UInt32)CheckCTRLV);
+	WriteRelJump(onConsoleInputAddress, (UInt32)CheckCTRLHotkeys);
+}
+
+/*
+EAX will contain the character pressed
+ECX contains the location of the ConsoleManager singleton
+*/
+__declspec(naked) void __fastcall CheckCTRLHotkeys() {
+	static const UInt32 retnAddr = 0x70E0A3;
+	__asm
+	{
+		push ecx // keep the address for later
+	checkControl:
+		mov    ecx, g_DIHookCtrl
+			cmp    byte ptr[ecx + 0xCF], 0 // check left control
+			jne    checkHotkeys
+			cmp    byte ptr[ecx + 0x44F], 0 // check right control
+			je    handleNormalInput
+
+
+	checkHotkeys:
+		cmp eax, 0x76 // 'v'
+		je handleV
+
+		cmp eax, 0x63 // 'c'
+		je handleC
+
+		cmp eax, 0x78 // 'x'
+		je handleX
+
+		cmp eax, backspaceChar
+		je handleBack
+
+		cmp eax, leftArrowChar
+		je handleLeft
+
+		cmp eax, rightArrowChar
+		je handleRight
+
+		cmp eax, deleteChar
+		jne handleNormalInput
+
+	handleDelete:
+		call DeleteNextWord
+		jmp done
+
+	handleV:
+		call PrintClipBoardToConsoleInput
+		jmp done
+	handleC:
+		call copyInputToClipboard
+		jmp done
+	handleX:
+		call clearInputString
+		jmp done
+	handleBack:
+		call DeletePreviousWord
+		jmp done
+	handleLeft:
+		call MoveToStartOfWord
+		jmp done
+	handleRight:
+		call MoveToEndOfWord
+		jmp done
+
+	handleNormalInput:
+		pop ecx
+		call sendCharToInput
+		jmp retnAddr
+	done:
+		pop ecx
+		jmp retnAddr
+	}
 }
 
 
 void PrintClipBoardToConsoleInput() {
-	static const int enterCharacter = 0x80000008;
 	GetClipboardText(&clipboardText);
-	for (int i = 0, c = clipboardText[0]; c != '\0' && i < 511 /* limit size to console max script size */; i++) {
+	for (int i = 0, c = clipboardText[0]; c != '\0' && i < MAX_BUFFER_SIZE; i++) {
 		c = clipboardText[i];
 		switch (c) {
 			/* replace newlines with spaces */
 		case '\n':
 		case '\r':
-			if(g_bReplaceNewLineWithEnter) PrintToConsoleInput(enterCharacter);
+			if(g_bReplaceNewLineWithEnter) PrintToConsoleInput(enterChar);
 			else PrintToConsoleInput(' ');
 			break;
 
@@ -134,7 +218,7 @@ void GetClipboardText(char **buffer) {
 	CloseClipboard();
 
 	/* copy clipboard text into buffer */
-	strncpy(*buffer, text.c_str(), 511);
+	strncpy(*buffer, text.c_str(), MAX_BUFFER_SIZE);
 }
 
 void __fastcall PrintToConsoleInput(UInt32 characterToPrint) {
@@ -146,7 +230,7 @@ void __fastcall PrintToConsoleInput(UInt32 characterToPrint) {
 		push  eax
 	sendCharToConsoleInput:
 		mov   eax, characterToPrint
-		pop   ecx  // eax = location of console struct
+		pop   ecx  // ecx = location of console struct
 		push  eax
 		call sendCharToInput
 	}
@@ -157,7 +241,12 @@ void __fastcall PrintToConsoleInput(UInt32 characterToPrint) {
  *  - it fails if the console output has a line with one | in it.
  */
 char *getConsoleInputString() {
-	int consoleLineAddress = *((int*) 0x11F33A8) + 0x14;
+	static const int CONSOLE_TEXT_BASE_ADDR = 0x11F33A8;
+	static const int LINE_STRUCT_SIZE = 0x2C;
+	static const int firstTextOffset = 0x14;
+	static const int lastOffset = 0x2A8;
+
+	int consoleLineAddress = *((int*) CONSOLE_TEXT_BASE_ADDR) + firstTextOffset;
 	char* consoleLine = NULL;
 
 	if (consoleLineAddress == NULL) return NULL;
@@ -166,8 +255,8 @@ char *getConsoleInputString() {
 	if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
 
 
-	for (int i = 0x2A8; i > 0x14; i -= 44) {
-		consoleLineAddress = *((int*)0x11F33A8) + i;
+	for (int i = lastOffset; i > firstTextOffset; i -= LINE_STRUCT_SIZE) {
+		consoleLineAddress = *((int*)CONSOLE_TEXT_BASE_ADDR) + i;
 		if(consoleLineAddress != NULL) {
 			consoleLine = *((char**) consoleLineAddress);
 			if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
@@ -217,7 +306,6 @@ int getCharsTillSpace(char *text, int caretIndex) {
 }
 
 void DeletePreviousWord() {
-	static const int backspaceChar = 0x80000000;
 	char *consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return;
 
@@ -229,7 +317,6 @@ void DeletePreviousWord() {
 }
 
 void DeleteNextWord() {
-	static const int deleteChar = 0x80000007;
 	char *consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return;
 
@@ -242,7 +329,6 @@ void DeleteNextWord() {
 
 
 void MoveToStartOfWord() {
-	static const int moveLeftChar = 0x80000001;
 	char *consoleInput = getConsoleInputString();
 
 	if (!consoleInput || !strlen(consoleInput)) return;
@@ -251,27 +337,25 @@ void MoveToStartOfWord() {
 
 	int charsToMove = getCharsSinceSpace(consoleInput, caretIndex);
 	for (; charsToMove > 0; charsToMove--) {
-		PrintToConsoleInput(moveLeftChar);
+		PrintToConsoleInput(leftArrowChar);
 	}
 }
 
 void MoveToEndOfWord() {
-	static const int moveRightCharacter = 0x80000002;
 	char *consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return;
 
 	int caretIndex = indexOfChar(consoleInput, '|');
 	int charsToMove = getCharsTillSpace(consoleInput, caretIndex);
 	for (; charsToMove > 0; charsToMove--) {
-		PrintToConsoleInput(moveRightCharacter);
+		PrintToConsoleInput(rightArrowChar);
 	}
 }
 
 void clearInputString() {
-	static const int moveRightCharacter = 0x80000002;
 	char *buffer = getConsoleInputString();
 	buffer[0] = '\0';
-	PrintToConsoleInput(moveRightCharacter); //any control character would work here
+	PrintToConsoleInput(rightArrowChar); //any control character would work here
 }
 
 void removeChar(char *str, const char garbage) {
@@ -302,80 +386,6 @@ void copyInputToClipboard() {
 	CloseClipboard();
 	GlobalFree(hg);
 }
-
-/*
-EAX will contain the character pressed, v's code is 0x76
-ECX contains the location of the input buffer to write to
-*/
-__declspec(naked) void __fastcall CheckCTRLV() {
-	static const UInt32 retnAddr = 0x70E0A3;
-	__asm
-	{
-		push ecx // keep the address for later
-	checkControl:
-		mov    ecx, g_DIHookCtrl
-		cmp    byte ptr[ecx + 0xCF], 0 // check left control
-		jne    checkOtherKeys
-		cmp    byte ptr[ecx + 0x44F], 0 // check right control
-		je    handleNormalInput
-
-	checkOtherKeys:
-
-	checkV:
-		cmp eax, 0x76 // 'v' in ascii
-		je handleV
-	checkC:
-		cmp eax, 0x63 // 'c' in ascii
-		je handleC
-	checkX:
-		cmp eax, 0x78
-		je handleX
-	checkBackSpace:
-		cmp eax, 0x80000000
-		je handleBack
-	checkLeftArrow:
-		cmp eax, 0x80000001
-		je handleLeft
-	checkRightArrow:
-		cmp eax, 0x80000002
-		je handleRight
-	checkDelete:
-		cmp eax, 0x80000007
-		jne handleNormalInput
-
-	handleDelete:
-		call DeleteNextWord
-		jmp done
-
-	handleV:
-		call PrintClipBoardToConsoleInput
-		jmp done
-	handleC:
-		call copyInputToClipboard
-		jmp done
-	handleX:
-		call clearInputString
-		jmp done
-	handleBack:
-		call DeletePreviousWord
-		jmp done
-	handleLeft:
-		call MoveToStartOfWord
-		jmp done
-	handleRight:
-		call MoveToEndOfWord
-		jmp done
-
-	handleNormalInput:
-		pop ecx
-		call sendCharToInput
-		jmp retnAddr
-	done:
-		pop ecx
-		jmp retnAddr
-	}
-}
-
 
 bool versionCheck(const NVSEInterface* nvse) {
 	if (nvse->isEditor) return false;
