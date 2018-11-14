@@ -7,43 +7,47 @@
 #include <windows.h>
 
 //IDebugLog gLog("nvse_console_clipboard.log");
-HMODULE consolePasteHandle;
-
-/* 0 means replace with space */
-int g_bReplaceNewLineWithEnter = 0;
-const int MAX_BUFFER_SIZE = 512;
-
-NVSEInterface *SaveNVSE;
-DIHookControl *g_DIHookCtrl = NULL;
-
-// function prototypes
-void handleIniOptions();
-void patchOnConsoleInput();
-void __fastcall CheckCTRLHotkeys();
-void GetClipboardText(char **buffer);
-void PrintClipBoardToConsoleInput();
-void __fastcall PrintToConsoleInput(UInt32 character);
-char *getConsoleInputString();
-bool versionCheck(const NVSEInterface* nvse);
-
-int indexOfChar(char *text, char c);
-
-void DeletePreviousWord();
-void DeleteNextWord();
-void clearInputString();
-void MoveToEndOfWord();
-void MoveToStartOfWord();
-void copyInputToClipboard();
-
-static const UInt32 GetConsoleManager = 0x71B160;
-static const UInt32 sendCharToInput = 0x71B210;
-static char *clipboardText = (char*) malloc(MAX_BUFFER_SIZE);
 
 static const int backspaceChar = 0x80000000;
 static const int rightArrowChar = 0x80000002;
 static const int leftArrowChar = 0x80000001;
 static const int deleteChar = 0x80000007;
 static const int enterChar = 0x80000008;
+static const int pageUpChar = 0x80000009;
+static const int pageDownChar = 0x8000000A;
+
+/* helper function prototypes */
+void handleIniOptions();
+void patchOnConsoleInput();
+void GetClipboardText(char **buffer);
+void __fastcall PrintToConsoleInput(UInt32 character);
+char *getConsoleInputString();
+bool versionCheck(const NVSEInterface* nvse);
+int indexOfChar(char *text, char c);
+
+
+bool CheckHotkeys();
+/* called in ASM hook 
+ * all have a dummy return true, as required for where is hooked
+*/
+bool __stdcall PrintClipBoardToConsoleInput(UInt32);
+bool __stdcall DeletePreviousWord(UInt32);
+bool __stdcall DeleteNextWord(UInt32);
+bool __stdcall clearInputString(UInt32);
+bool __stdcall MoveToEndOfWord(UInt32);
+bool __stdcall MoveToStartOfWord(UInt32);
+bool __stdcall copyInputToClipboard(UInt32);
+
+NVSEInterface *SaveNVSE;
+DIHookControl *g_DIHookCtrl = NULL;
+HMODULE consolePasteHandle;
+
+int g_bReplaceNewLineWithEnter = 0; // 0 -> replace with space
+const int MAX_BUFFER_SIZE = 512;
+
+static const UInt32 GetConsoleManager = 0x71B160;
+static const UInt32 sendCharToInput = 0x71B210;
+static char *clipboardText = (char*) malloc(MAX_BUFFER_SIZE);
 
 extern "C" {
 
@@ -84,83 +88,60 @@ void handleIniOptions() {
 
 void patchOnConsoleInput() {
 	UInt32 onConsoleInputAddress = 0x70E09E;
-	WriteRelJump(onConsoleInputAddress, (UInt32)CheckCTRLHotkeys);
+	WriteRelCall(onConsoleInputAddress, (UInt32)CheckHotkeys);
 }
 
 /*
 EAX will contain the character pressed
 ECX contains the location of the ConsoleManager singleton
 */
-__declspec(naked) void __fastcall CheckCTRLHotkeys() {
-	static const UInt32 retnAddr = 0x70E0A3;
+__declspec(naked) bool CheckHotkeys()
+{
+	static const UInt32 retnAddr = 0x71B210;
 	__asm
 	{
-		push ecx // keep the address for later
-	checkControl:
-		mov    ecx, g_DIHookCtrl
-			cmp    byte ptr[ecx + 0xCF], 0 // check left control
-			jne    checkHotkeys
-			cmp    byte ptr[ecx + 0x44F], 0 // check right control
-			je    handleNormalInput
-
-
-	checkHotkeys:
-		cmp eax, 0x76 // 'v'
-		je handleV
-
-		cmp eax, 0x63 // 'c'
-		je handleC
-
-		cmp eax, 0x78 // 'x'
-		je handleX
-
-		cmp eax, backspaceChar
-		je handleBack
-
-		cmp eax, leftArrowChar
-		je handleLeft
-
-		cmp eax, rightArrowChar
-		je handleRight
-
-		cmp eax, deleteChar
-		jne handleNormalInput
-
-	handleDelete:
-		call DeleteNextWord
-		jmp done
-
-	handleV:
-		call PrintClipBoardToConsoleInput
-		jmp done
-	handleC:
-		call copyInputToClipboard
-		jmp done
-	handleX:
-		call clearInputString
-		jmp done
-	handleBack:
-		call DeletePreviousWord
-		jmp done
-	handleLeft:
-		call MoveToStartOfWord
-		jmp done
-	handleRight:
-		call MoveToEndOfWord
-		jmp done
-
-	handleNormalInput:
-		pop ecx
-		call sendCharToInput
-		jmp retnAddr
-	done:
-		pop ecx
-		jmp retnAddr
+		mov     eax, g_DIHookCtrl
+		cmp     byte ptr[eax + 0xCF], 0    // check left control
+		jnz     checkHotkeys
+		cmp     byte ptr[eax + 0x44F], 0    // check right control
+		jz      handleNormalInput
+		checkHotkeys :
+		mov     eax, [esp + 4]
+		cmp     eax, 0x80000000
+		jz      handleBack
+		cmp     eax, 0x80000001
+		jz      handleLeft
+		cmp     eax, 0x80000002
+		jz      handleRight
+		cmp     eax, 0x80000007
+		jz      handleDelete
+		or al, 0x20    // Change to lower-case
+		cmp     al, 'v'
+		jz      handleV
+		cmp     al, 'c'
+		jz      handleC
+		cmp     al, 'x'
+		jnz     handleNormalInput
+		jmp     clearInputString
+	handleBack :
+		jmp     DeletePreviousWord
+	handleLeft :
+		jmp     MoveToStartOfWord
+	handleRight :
+		jmp     MoveToEndOfWord
+	handleDelete :
+		jmp     DeleteNextWord
+	handleV :
+		jmp     PrintClipBoardToConsoleInput
+	handleC :
+		jmp     copyInputToClipboard
+	handleNormalInput :
+		jmp     retnAddr
 	}
 }
 
 
-void PrintClipBoardToConsoleInput() {
+bool __stdcall PrintClipBoardToConsoleInput(UInt32) {
 	GetClipboardText(&clipboardText);
 	for (int i = 0, c = clipboardText[0]; c != '\0' && i < MAX_BUFFER_SIZE; i++) {
 		c = clipboardText[i];
@@ -180,6 +161,7 @@ void PrintClipBoardToConsoleInput() {
 			PrintToConsoleInput(clipboardText[i]);
 		}
 	}
+	return true;
 }
 
 
@@ -305,33 +287,35 @@ int getCharsTillSpace(char *text, int caretIndex) {
 	return charsTillSpace + 1;
 }
 
-void DeletePreviousWord() {
+bool __stdcall DeletePreviousWord(UInt32) {
 	char *consoleInput = getConsoleInputString();
-	if (!consoleInput || !strlen(consoleInput)) return;
+	if (!consoleInput || !strlen(consoleInput)) return true;
 
 	int caretIndex = indexOfChar(consoleInput, '|');
 	int charsToDelete = getCharsSinceSpace(consoleInput, caretIndex);
 	for (; charsToDelete > 0; charsToDelete--) {
 		PrintToConsoleInput(backspaceChar);
 	}
+	return true;
 }
 
-void DeleteNextWord() {
+bool __stdcall DeleteNextWord(UInt32) {
 	char *consoleInput = getConsoleInputString();
-	if (!consoleInput || !strlen(consoleInput)) return;
+	if (!consoleInput || !strlen(consoleInput)) return true;
 
 	int caretIndex = indexOfChar(consoleInput, '|');
 	int charsToDelete = getCharsTillSpace(consoleInput, caretIndex);
 	for (; charsToDelete > 0; charsToDelete--) {
 		PrintToConsoleInput(deleteChar);
 	}
+	return true;
 }
 
 
-void MoveToStartOfWord() {
+bool __stdcall MoveToStartOfWord(UInt32) {
 	char *consoleInput = getConsoleInputString();
 
-	if (!consoleInput || !strlen(consoleInput)) return;
+	if (!consoleInput || !strlen(consoleInput)) return true;
 
 	int caretIndex = indexOfChar(consoleInput, '|');
 
@@ -339,23 +323,27 @@ void MoveToStartOfWord() {
 	for (; charsToMove > 0; charsToMove--) {
 		PrintToConsoleInput(leftArrowChar);
 	}
+	return true;
 }
 
-void MoveToEndOfWord() {
+bool __stdcall MoveToEndOfWord(UInt32) {
 	char *consoleInput = getConsoleInputString();
-	if (!consoleInput || !strlen(consoleInput)) return;
+	if (!consoleInput || !strlen(consoleInput)) return true;
 
 	int caretIndex = indexOfChar(consoleInput, '|');
 	int charsToMove = getCharsTillSpace(consoleInput, caretIndex);
 	for (; charsToMove > 0; charsToMove--) {
 		PrintToConsoleInput(rightArrowChar);
 	}
+	return true;
 }
 
-void clearInputString() {
+bool __stdcall clearInputString(UInt32) {
 	char *buffer = getConsoleInputString();
 	buffer[0] = '\0';
 	PrintToConsoleInput(rightArrowChar); //any control character would work here
+
+	return true;
 }
 
 void removeChar(char *str, const char garbage) {
@@ -367,7 +355,7 @@ void removeChar(char *str, const char garbage) {
 	*dst = '\0';
 }
 
-void copyInputToClipboard() {
+bool __stdcall copyInputToClipboard(UInt32) {
 	char *inputString = getConsoleInputString();
 	char* sanitisedInput = (char*)malloc(strlen(inputString) + 1);
 	strcpy(sanitisedInput, inputString);
@@ -378,13 +366,14 @@ void copyInputToClipboard() {
 	HGLOBAL hg = GlobalAlloc(GMEM_MOVEABLE, strlen(sanitisedInput) + 1);
 	if (!hg) {
 		CloseClipboard();
-		return;
+		return true;
 	}
 	memcpy(GlobalLock(hg), sanitisedInput, strlen(inputString) + 1);
 	GlobalUnlock(hg);
 	SetClipboardData(CF_TEXT, hg);
 	CloseClipboard();
 	GlobalFree(hg);
+	return true;
 }
 
 bool versionCheck(const NVSEInterface* nvse) {
