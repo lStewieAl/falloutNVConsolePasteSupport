@@ -15,11 +15,11 @@ const UInt32 kConsoleSendInput = 0x71B210;
 
 enum
 {
-	kSpclChar_Backspace =	0x80000000,
-	kSpclChar_LeftArrow =	0x80000001,
-	kSpclChar_RightArrow =	0x80000002,
-	kSpclChar_Delete =		0x80000007,
-	kSpclChar_Enter =		0x80000008,
+	kSpclChar_Backspace = 0x80000000,
+	kSpclChar_LeftArrow = 0x80000001,
+	kSpclChar_RightArrow = 0x80000002,
+	kSpclChar_Delete = 0x80000007,
+	kSpclChar_Enter = 0x80000008,
 };
 
 DIHookControl *g_DIHookCtrl = NULL;
@@ -50,7 +50,7 @@ extern "C"
 		info->infoVersion = PluginInfo::kInfoVersion;
 		info->name = "Console Clipboard";
 		info->version = 1;
-		return !nvse->isEditor && (nvse->runtimeVersion == RUNTIME_VERSION_1_4_0_525) && (nvse->nvseVersion >= 0x5010010)
+		return !nvse->isEditor && (nvse->runtimeVersion == RUNTIME_VERSION_1_4_0_525) && (nvse->nvseVersion >= 0x5010010);
 	}
 
 	bool NVSEPlugin_Load(const NVSEInterface *nvse)
@@ -59,7 +59,7 @@ extern "C"
 		g_DIHookCtrl = (DIHookControl*)nvseData->GetSingleton(NVSEDataInterface::kNVSEData_DIHookControl);
 
 		handleIniOptions();
-		
+
 		WriteRelCall(0x70E09E, (UInt32)CheckCTRLHotkeys);
 		return true;
 	}
@@ -90,22 +90,22 @@ __declspec(naked) char* __fastcall StrCopy(char *dest, const char *src)
 		test	edx, edx
 		jz		done
 		xor		ebx, ebx
-	getSize:
-		cmp		[edx+ebx], 0
-		jz		doCopy
-		inc		ebx
-		jmp		getSize
-	doCopy:
+		getSize :
+		cmp[edx + ebx], 0
+			jz		doCopy
+			inc		ebx
+			jmp		getSize
+			doCopy :
 		push	ebx
-		push	edx
-		push	eax
-		call	_memcpy
-		add		esp, 0xC
-		add		eax, ebx
-		mov		[eax], 0
-	done:
+			push	edx
+			push	eax
+			call	_memcpy
+			add		esp, 0xC
+			add		eax, ebx
+			mov[eax], 0
+			done:
 		pop		ebx
-		retn
+			retn
 	}
 }
 
@@ -199,44 +199,44 @@ __declspec(naked) void CheckCTRLHotkeys()
 	__asm
 	{
 		mov		eax, g_DIHookCtrl
-		cmp		byte ptr [eax+0xCF], 0	// check left control
+		cmp		byte ptr[eax + 0xCF], 0	// check left control
 		jnz		checkHotkeys
-		cmp		byte ptr [eax+0x44F], 0	// check right control
+		cmp		byte ptr[eax + 0x44F], 0	// check right control
 		jz		handleNormalInput
-	checkHotkeys:
-		mov		eax, [esp+4]
-		cmp		eax, kSpclChar_Backspace
-		jz		handleBack
-		cmp		eax, kSpclChar_LeftArrow
-		jz		handleLeft
-		cmp		eax, kSpclChar_RightArrow
-		jz		handleRight
-		cmp		eax, kSpclChar_Delete
-		jz		handleDelete
-		or		al, 0x20	// Change to lower-case
-		cmp		eax, 'v'
-		jz		handleV
-		cmp		eax, 'c'
-		jz		handleC
-		cmp		eax, 'x'
-		jz		handleX
-		mov		al, 1
-		retn	4
-	handleBack:
+		checkHotkeys :
+		mov		eax, [esp + 4]
+			cmp		eax, kSpclChar_Backspace
+			jz		handleBack
+			cmp		eax, kSpclChar_LeftArrow
+			jz		handleLeft
+			cmp		eax, kSpclChar_RightArrow
+			jz		handleRight
+			cmp		eax, kSpclChar_Delete
+			jz		handleDelete
+			or al, 0x20	// Change to lower-case
+			cmp		eax, 'v'
+			jz		handleV
+			cmp		eax, 'c'
+			jz		handleC
+			cmp		eax, 'x'
+			jz		handleX
+			mov		al, 1
+			retn	4
+			handleBack:
 		jmp		DeletePreviousWord
-	handleLeft:
+			handleLeft :
 		jmp		MoveToStartOfWord
-	handleRight:
+			handleRight :
 		jmp		MoveToEndOfWord
-	handleDelete:
+			handleDelete :
 		jmp		DeleteNextWord
-	handleV:
+			handleV :
 		jmp		PrintClipBoardToConsoleInput
-	handleC:
+			handleC :
 		jmp		CopyInputToClipboard
-	handleX:
+			handleX :
 		jmp		ClearInputString
-	handleNormalInput:
+			handleNormalInput :
 		jmp		kConsoleSendInput
 	}
 }
@@ -244,43 +244,35 @@ __declspec(naked) void CheckCTRLHotkeys()
 UInt32 GetCharsSinceSpace()
 {
 	DebugText *debugText = *g_debugText;
+	UInt32 numChars = 0;
+
 	if (debugText && debugText->currText.m_dataLen)
 	{
 		char *data = debugText->currText.m_data, *barPos = strchr(data, '|');
 		if (barPos)
 		{
-			UInt32 numChars = 0;
-			while (barPos != data)
-			{
-				barPos--;
-				if (*barPos == ' ')
-					return numChars;
-				numChars++;
-			}
+			while (barPos != data && !isalnum(*--barPos)) numChars++;
+			while (barPos >= data && isalnum(*barPos--)) numChars++;
 		}
 	}
-	return 0;
+	return numChars;
 }
 
 UInt32 GetCharsTillSpace()
 {
 	DebugText *debugText = *g_debugText;
+	UInt32 numChars = 0;
+
 	if (debugText && debugText->currText.m_dataLen)
 	{
 		char *barPos = strchr(debugText->currText.m_data, '|');
 		if (barPos)
 		{
-			UInt32 numChars = 0;
-			char chr;
-			while (chr = *++barPos)
-			{
-				if (chr == ' ') break;
-				numChars++;
-			}
-			return numChars;
+			while (isalnum(*++barPos)) numChars++;
+			while (!isalnum(*barPos++) && *barPos) numChars++;
 		}
 	}
-	return 0;
+	return numChars;
 }
 
 char s_stringBuffer[0x8000];
