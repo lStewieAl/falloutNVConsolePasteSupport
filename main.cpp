@@ -27,8 +27,8 @@ int indexOfChar(char *text, char c);
 
 
 bool CheckHotkeys();
-/* called in ASM hook 
- * all have a dummy return true, as required for where is hooked
+/* called in ASM hook
+* all have a dummy return true, as required for where is hooked
 */
 bool __stdcall PrintClipBoardToConsoleInput(UInt32);
 bool __stdcall DeletePreviousWord(UInt32);
@@ -47,7 +47,7 @@ const int MAX_BUFFER_SIZE = 512;
 
 static const UInt32 GetConsoleManager = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
-static char *clipboardText = (char*) malloc(MAX_BUFFER_SIZE);
+static char *clipboardText = (char*)malloc(MAX_BUFFER_SIZE);
 
 extern "C" {
 
@@ -100,6 +100,11 @@ __declspec(naked) bool CheckHotkeys()
 	static const UInt32 retnAddr = 0x71B210;
 	__asm
 	{
+		test ecx, ecx
+		jle consoleMenuNotOpen
+		movsx	eax, [ecx+0x38]
+		test	eax, eax
+		jle		consoleMenuNotOpen
 		mov     eax, g_DIHookCtrl
 		cmp     byte ptr[eax + 0xCF], 0    // check left control
 		jnz     checkHotkeys
@@ -107,35 +112,37 @@ __declspec(naked) bool CheckHotkeys()
 		jz      handleNormalInput
 		checkHotkeys :
 		mov     eax, [esp + 4]
-		cmp     eax, 0x80000000
-		jz      handleBack
-		cmp     eax, 0x80000001
-		jz      handleLeft
-		cmp     eax, 0x80000002
-		jz      handleRight
-		cmp     eax, 0x80000007
-		jz      handleDelete
-		or al, 0x20    // Change to lower-case
-		cmp     al, 'v'
-		jz      handleV
-		cmp     al, 'c'
-		jz      handleC
-		cmp     al, 'x'
-		jnz     handleNormalInput
-		jmp     clearInputString
-	handleBack :
+			cmp     eax, 0x80000000
+			jz      handleBack
+			cmp     eax, 0x80000001
+			jz      handleLeft
+			cmp     eax, 0x80000002
+			jz      handleRight
+			cmp     eax, 0x80000007
+			jz      handleDelete
+			or al, 0x20    // Change to lower-case
+			cmp     al, 'v'
+			jz      handleV
+			cmp     al, 'c'
+			jz      handleC
+			cmp     al, 'x'
+			jnz     handleNormalInput
+			jmp     clearInputString
+			handleBack :
 		jmp     DeletePreviousWord
-	handleLeft :
+			handleLeft :
 		jmp     MoveToStartOfWord
-	handleRight :
+			handleRight :
 		jmp     MoveToEndOfWord
-	handleDelete :
+			handleDelete :
 		jmp     DeleteNextWord
-	handleV :
+			handleV :
 		jmp     PrintClipBoardToConsoleInput
-	handleC :
+			handleC :
 		jmp     copyInputToClipboard
-	handleNormalInput :
+			consoleMenuNotOpen:
+		mov eax, [esp+4]
+			handleNormalInput :
 		jmp     retnAddr
 	}
 }
@@ -149,7 +156,7 @@ bool __stdcall PrintClipBoardToConsoleInput(UInt32) {
 			/* replace newlines with spaces */
 		case '\n':
 		case '\r':
-			if(g_bReplaceNewLineWithEnter) PrintToConsoleInput(enterChar);
+			if (g_bReplaceNewLineWithEnter) PrintToConsoleInput(enterChar);
 			else PrintToConsoleInput(' ');
 			break;
 
@@ -208,40 +215,38 @@ void __fastcall PrintToConsoleInput(UInt32 characterToPrint) {
 	{
 	getConsoleInputStringLocation:
 		push  00
-		call  GetConsoleManager // sets eax to location of console structure
-		push  eax
-	sendCharToConsoleInput:
+			call  GetConsoleManager // sets eax to location of console structure
+			push  eax
+			sendCharToConsoleInput :
 		mov   eax, characterToPrint
-		pop   ecx  // ecx = location of console struct
-		push  eax
-		call sendCharToInput
+			pop   ecx  // ecx = location of console struct
+			push  eax
+			call sendCharToInput
 	}
 }
 
 /* check 0x14 for | character then check each row starting at the bottom
- * this is a hacky solution until I work out how to get the address properly
- *  - it fails if the console output has a line with one | in it.
- */
+* this is a hacky solution until I work out how to get the address properly
+*  - it fails if the console output has a line with one | in it.
+*/
 char *getConsoleInputString() {
 	static const int CONSOLE_TEXT_BASE_ADDR = 0x11F33A8;
 	static const int LINE_STRUCT_SIZE = 0x2C;
 	static const int firstTextOffset = 0x14;
 	static const int lastOffset = 0x2A8;
 
-	int consoleLineAddress = *((int*) CONSOLE_TEXT_BASE_ADDR) + firstTextOffset;
-	char* consoleLine = NULL;
+	int consoleLineAddress = *((int*)CONSOLE_TEXT_BASE_ADDR) + firstTextOffset;
+	if (!consoleLineAddress) return NULL;
 
-	if (consoleLine && consoleLineAddress == NULL) return NULL;
-	consoleLine = *(char**) consoleLineAddress;
-
-	if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
+	char* consoleLine = *(char**)consoleLineAddress;
+	if (consoleLine && indexOfChar(consoleLine, '|') > -1) return consoleLine;
 
 
 	for (int i = lastOffset; i > firstTextOffset; i -= LINE_STRUCT_SIZE) {
 		consoleLineAddress = *((int*)CONSOLE_TEXT_BASE_ADDR) + i;
-		if(consoleLineAddress != NULL) {
-			consoleLine = *((char**) consoleLineAddress);
-			if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
+		if (consoleLineAddress != NULL) {
+			consoleLine = *((char**)consoleLineAddress);
+			if (consoleLine && indexOfChar(consoleLine, '|') > -1) return consoleLine;
 		}
 	}
 	return NULL;
@@ -249,8 +254,8 @@ char *getConsoleInputString() {
 	/*
 	__asm
 	{
-		mov eax, dword ptr ds : [0x11F33A8]
-		mov eax, dword ptr ds : [eax+0x14]
+	mov eax, dword ptr ds : [0x11F33A8]
+	mov eax, dword ptr ds : [eax+0x14]
 	}*/
 }
 
