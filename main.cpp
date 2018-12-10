@@ -30,13 +30,13 @@ bool CheckHotkeys();
 /* called in ASM hook
 * all have a dummy return true, as required for where is hooked
 */
-bool __stdcall PrintClipBoardToConsoleInput(UInt32);
-bool __stdcall DeletePreviousWord(UInt32);
-bool __stdcall DeleteNextWord(UInt32);
-bool __stdcall clearInputString(UInt32);
-bool __stdcall MoveToEndOfWord(UInt32);
-bool __stdcall MoveToStartOfWord(UInt32);
-bool __stdcall copyInputToClipboard(UInt32);
+bool __fastcall PrintClipBoardToConsoleInput(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall DeletePreviousWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall DeleteNextWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall clearInputString(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall MoveToEndOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall MoveToStartOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall copyInputToClipboard(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 
 NVSEInterface *SaveNVSE;
 DIHookControl *g_DIHookCtrl = NULL;
@@ -148,7 +148,7 @@ __declspec(naked) bool CheckHotkeys()
 }
 
 
-bool __stdcall PrintClipBoardToConsoleInput(UInt32) {
+bool __fastcall PrintClipBoardToConsoleInput(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	GetClipboardText(&clipboardText);
 	for (int i = 0, c = clipboardText[0]; c != '\0' && i < MAX_BUFFER_SIZE; i++) {
 		c = clipboardText[i];
@@ -292,7 +292,7 @@ int getCharsTillSpace(char *text, int caretIndex) {
 	return charsTillSpace + 1;
 }
 
-bool __stdcall DeletePreviousWord(UInt32) {
+bool __fastcall DeletePreviousWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return true;
 
@@ -304,7 +304,7 @@ bool __stdcall DeletePreviousWord(UInt32) {
 	return true;
 }
 
-bool __stdcall DeleteNextWord(UInt32) {
+bool __fastcall DeleteNextWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return true;
 
@@ -317,7 +317,7 @@ bool __stdcall DeleteNextWord(UInt32) {
 }
 
 
-bool __stdcall MoveToStartOfWord(UInt32) {
+bool __fastcall MoveToStartOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
 
 	if (!consoleInput || !strlen(consoleInput)) return true;
@@ -331,7 +331,7 @@ bool __stdcall MoveToStartOfWord(UInt32) {
 	return true;
 }
 
-bool __stdcall MoveToEndOfWord(UInt32) {
+bool __fastcall MoveToEndOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
 	if (!consoleInput || !strlen(consoleInput)) return true;
 
@@ -343,7 +343,7 @@ bool __stdcall MoveToEndOfWord(UInt32) {
 	return true;
 }
 
-bool __stdcall clearInputString(UInt32) {
+bool __fastcall clearInputString(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *buffer = getConsoleInputString();
 	buffer[0] = '\0';
 	PrintToConsoleInput(rightArrowChar); //any control character would work here
@@ -360,7 +360,7 @@ void removeChar(char *str, const char garbage) {
 	*dst = '\0';
 }
 
-bool __stdcall copyInputToClipboard(UInt32) {
+bool __fastcall copyInputToClipboard(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *inputString = getConsoleInputString();
 	char* sanitisedInput = (char*)malloc(strlen(inputString) + 1);
 	strcpy(sanitisedInput, inputString);
