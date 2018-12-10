@@ -231,7 +231,7 @@ char *getConsoleInputString() {
 	int consoleLineAddress = *((int*) CONSOLE_TEXT_BASE_ADDR) + firstTextOffset;
 	char* consoleLine = NULL;
 
-	if (consoleLineAddress == NULL) return NULL;
+	if (consoleLine && consoleLineAddress == NULL) return NULL;
 	consoleLine = *(char**) consoleLineAddress;
 
 	if (indexOfChar(consoleLine, '|') > -1) return consoleLine;
