@@ -43,6 +43,7 @@ DIHookControl *g_DIHookCtrl = NULL;
 HMODULE consolePasteHandle;
 
 int g_bReplaceNewLineWithEnter = 0; // 0 -> replace with space
+int g_iConsoleMaxLines = 15;
 const int MAX_BUFFER_SIZE = 512;
 
 static const UInt32 GetConsoleManager = 0x71B160;
@@ -98,13 +99,19 @@ ECX contains the location of the ConsoleManager singleton
 __declspec(naked) bool CheckHotkeys()
 {
 	static const UInt32 retnAddr = 0x71B210;
+	static const UInt32 getIsMenuModeCall = 0x7023A0;
 	__asm
 	{
-		test ecx, ecx
-		jle consoleMenuNotOpen
-		movsx	eax, [ecx+0x38]
+		movsx	eax, [ecx + 0x38] //ConsoleManager::isConsoleOpen
 		test	eax, eax
 		jle		consoleMenuNotOpen
+		push ecx
+		mov     ecx, [0x11D8A80]
+		call    getIsMenuModeCall //InterfaceManager::IsMenuMode()
+		pop ecx
+		movzx   eax, al
+		test    eax, eax
+		jz      consoleMenuNotOpen
 		mov     eax, g_DIHookCtrl
 		cmp     byte ptr[eax + 0xCF], 0    // check left control
 		jnz     checkHotkeys
@@ -140,10 +147,10 @@ __declspec(naked) bool CheckHotkeys()
 		jmp     PrintClipBoardToConsoleInput
 			handleC :
 		jmp     copyInputToClipboard
-			consoleMenuNotOpen:
-		mov eax, [esp+4]
+			consoleMenuNotOpen :
+		mov eax, [esp + 4] // restore original eax
 			handleNormalInput :
-		jmp     retnAddr
+			jmp     retnAddr
 	}
 }
 
