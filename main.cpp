@@ -37,6 +37,7 @@ bool __fastcall clearInputString(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inK
 bool __fastcall MoveToEndOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 bool __fastcall MoveToStartOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 bool __fastcall copyInputToClipboard(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
+bool __fastcall ClearConsoleOutput(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 
 NVSEInterface *SaveNVSE;
 DIHookControl *g_DIHookCtrl = NULL;
@@ -48,6 +49,10 @@ const int MAX_BUFFER_SIZE = 512;
 
 static const UInt32 GetConsoleManager = 0x71B160;
 static const UInt32 sendCharToInput = 0x71B210;
+
+#define ClearLines(consoleManager) ThisStdCall(0x71E070, consoleManager+1);
+#define RefreshConsoleOutput(consoleManager) ThisStdCall(0x71D410, consoleManager);
+
 static char *clipboardText = (char*)malloc(MAX_BUFFER_SIZE);
 
 extern "C" {
@@ -130,6 +135,8 @@ __declspec(naked) bool CheckHotkeys()
 			or al, 0x20    // Change to lower-case
 			cmp     al, 'v'
 			jz      handleV
+			cmp		al, 'l'
+			jz		handleL
 			cmp     al, 'c'
 			jz      handleC
 			cmp     al, 'x'
@@ -145,6 +152,8 @@ __declspec(naked) bool CheckHotkeys()
 		jmp     DeleteNextWord
 			handleV :
 		jmp     PrintClipBoardToConsoleInput
+			handleL:
+		jmp ClearConsoleOutput
 			handleC :
 		jmp     copyInputToClipboard
 			consoleMenuNotOpen :
@@ -353,6 +362,7 @@ bool __fastcall MoveToEndOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKe
 bool __fastcall clearInputString(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *buffer = getConsoleInputString();
 	buffer[0] = '\0';
+	Console_Print("%p", consoleMgr);
 	PrintToConsoleInput(rightArrowChar); //any control character would work here
 
 	return true;
@@ -394,5 +404,12 @@ bool versionCheck(const NVSEInterface* nvse) {
 		_ERROR("incorrect runtime version (got %08X need at least %08X)", nvse->runtimeVersion, RUNTIME_VERSION_1_4_0_525);
 		return false;
 	}
+	return true;
+}
+
+bool __fastcall ClearConsoleOutput(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
+	ClearLines(consoleMgr); // clears the TextList printedLines
+	*(consoleMgr + 9) = 0;
+	RefreshConsoleOutput(consoleMgr); // refreshes the output so changes show
 	return true;
 }
