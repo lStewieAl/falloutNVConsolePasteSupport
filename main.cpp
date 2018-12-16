@@ -152,7 +152,7 @@ __declspec(naked) bool CheckHotkeys()
 		jmp     DeleteNextWord
 			handleV :
 		jmp     PrintClipBoardToConsoleInput
-			handleL:
+			handleL :
 		jmp ClearConsoleOutput
 			handleC :
 		jmp     copyInputToClipboard
@@ -249,7 +249,7 @@ char *getConsoleInputString() {
 	static const int CONSOLE_TEXT_BASE_ADDR = 0x11F33A8;
 	static const int LINE_STRUCT_SIZE = 0x2C;
 	static const int firstTextOffset = 0x14;
-	static const int lastOffset = 0x2A8;
+	static const int lastOffset = 0x384;
 
 	int consoleLineAddress = *((int*)CONSOLE_TEXT_BASE_ADDR) + firstTextOffset;
 	if (!consoleLineAddress) return NULL;
@@ -284,36 +284,33 @@ int indexOfChar(char *text, char c) {
 	return -1;
 }
 
-int getCharsSinceSpace(char *text, int caretIndex) {
-	if (caretIndex == 0) return 0;
-	char *caret = text + caretIndex;
+int getCharsSinceSpace(char *text) {
+	char *barPos = strchr(text, '|');
+	int numChars = 0;
+	
+	while (barPos != text && !isalnum(*--barPos)) numChars++;
+	while (barPos >= text && isalnum(*barPos--)) numChars++;
 
-	int charsSinceSpace = 0;
-
-	while (!isalnum(*--caret)) charsSinceSpace++;
-	while (isalnum(*--caret) && caret >= text) charsSinceSpace++;
-
-	return charsSinceSpace + 1;
+	return numChars;
 }
 
-int getCharsTillSpace(char *text, int caretIndex) {
-	char *caret = text + caretIndex;
-	if (*++caret == '\0') return 0;
+int getCharsTillSpace(char *text) {
+	char *barPos = strchr(text, '|');
+	if (!barPos) return 0;
 
-	int charsTillSpace = 0;
+	int numChars = 0;
 
-	while (isalnum(*caret++)) charsTillSpace++;
-	while (*caret != '\0' && !isalnum(*caret++)) charsTillSpace++;
+	while (isalnum(*++barPos)) numChars++;
+	while (!isalnum(*barPos++) && *barPos) numChars++;
 
-	return charsTillSpace + 1;
+	return numChars;
 }
 
 bool __fastcall DeletePreviousWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
-	if (!consoleInput || !strlen(consoleInput)) return true;
+	if (!consoleInput || !(*consoleInput)) return true;
 
-	int caretIndex = indexOfChar(consoleInput, '|');
-	int charsToDelete = getCharsSinceSpace(consoleInput, caretIndex);
+	int charsToDelete = getCharsSinceSpace(consoleInput);
 	for (; charsToDelete > 0; charsToDelete--) {
 		PrintToConsoleInput(backspaceChar);
 	}
@@ -322,10 +319,9 @@ bool __fastcall DeletePreviousWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 i
 
 bool __fastcall DeleteNextWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
-	if (!consoleInput || !strlen(consoleInput)) return true;
+	if (!consoleInput || !(*consoleInput)) return true;
 
-	int caretIndex = indexOfChar(consoleInput, '|');
-	int charsToDelete = getCharsTillSpace(consoleInput, caretIndex);
+	int charsToDelete = getCharsTillSpace(consoleInput);
 	for (; charsToDelete > 0; charsToDelete--) {
 		PrintToConsoleInput(deleteChar);
 	}
@@ -335,12 +331,9 @@ bool __fastcall DeleteNextWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey
 
 bool __fastcall MoveToStartOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
+	if (!consoleInput || !(*consoleInput)) return true;
 
-	if (!consoleInput || !strlen(consoleInput)) return true;
-
-	int caretIndex = indexOfChar(consoleInput, '|');
-
-	int charsToMove = getCharsSinceSpace(consoleInput, caretIndex);
+	int charsToMove = getCharsSinceSpace(consoleInput);
 	for (; charsToMove > 0; charsToMove--) {
 		PrintToConsoleInput(leftArrowChar);
 	}
@@ -349,10 +342,9 @@ bool __fastcall MoveToStartOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 in
 
 bool __fastcall MoveToEndOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *consoleInput = getConsoleInputString();
-	if (!consoleInput || !strlen(consoleInput)) return true;
+	if (!consoleInput || !(*consoleInput)) return true;
 
-	int caretIndex = indexOfChar(consoleInput, '|');
-	int charsToMove = getCharsTillSpace(consoleInput, caretIndex);
+	int charsToMove = getCharsTillSpace(consoleInput);
 	for (; charsToMove > 0; charsToMove--) {
 		PrintToConsoleInput(rightArrowChar);
 	}
@@ -362,7 +354,6 @@ bool __fastcall MoveToEndOfWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKe
 bool __fastcall clearInputString(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey) {
 	char *buffer = getConsoleInputString();
 	buffer[0] = '\0';
-	Console_Print("%p", consoleMgr);
 	PrintToConsoleInput(rightArrowChar); //any control character would work here
 
 	return true;
