@@ -24,8 +24,6 @@ bool versionCheck(const NVSEInterface* nvse);
 
 void hookInputLenCheck();
 bool CheckHotkeys();
-//bool CheckCommandEqual();
-
 
 /* called in ASM hook
 * all have a dummy return true, as required for where is hooked
@@ -35,8 +33,6 @@ bool __fastcall clearInputString(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inK
 bool _fastcall HandleWord(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 bool __fastcall copyInputToClipboard(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 bool __fastcall ClearConsoleOutput(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
-
-bool __fastcall ChangeInputColour(UInt32 *consoleMgr, UInt32 dummyEDX, UInt32 inKey);
 
 NVSEInterface *SaveNVSE;
 DIHookControl *g_DIHookCtrl = NULL;
@@ -53,10 +49,8 @@ static const UInt32 kConsoleSendInput = 0x71B210;
 
 static char *clipboardText = (char*)malloc(MAX_BUFFER_SIZE);
 
-
 #define GameHeapAlloc(size) ThisStdCall(0xAA3E40, (void*)0x11F6238, size)
 #define GameHeapFree(ptr) ThisStdCall(0xAA4060, (void*)0x11F6238, ptr)
-
 
 class DebugText
 {
@@ -122,7 +116,6 @@ DebugText::DebugLine *GetDebugInputLine()
 String* GetDebugInput() {
 	return &(GetDebugInputLine()->text);
 }
-
 
 void* (__cdecl *_memcpy)(void *destination, const void *source, size_t num) = memcpy;
 
@@ -316,29 +309,25 @@ __declspec(naked) bool CheckHotkeys()
 		or al, 0x20    // Change to lower-case
 		cmp     al, 'v'
 		jz      handleV
-		cmp		al, 'l'
-		jz		handleL
+		cmp	al, 'l'
+		jz	handleL
 		cmp     al, 'c'
 		jz      handleC
-		cmp		al, 'f'
-		jz handleF
 		cmp     al, 'x'
 		jnz     handleNormalInput
 		jmp     clearInputString
 	handleEnchancedMovement :
-		jmp     HandleWord
+		jmp	HandleWord
 	handleV :
-		jmp     PrintClipBoardToConsoleInput
+		jmp	PrintClipBoardToConsoleInput
 	handleL :
-		jmp ClearConsoleOutput
+		jmp	ClearConsoleOutput
 	handleC :
-		jmp     copyInputToClipboard
-	handleF :
-		jmp ChangeInputColour
+		jmp	copyInputToClipboard
 	consoleMenuNotOpen :
 		mov eax, [esp + 4] // restore original eax
 	handleNormalInput :
-		jmp     retnAddr
+		jmp	retnAddr
 	
 	handleTab: // ignore tab character if ALT is pressed
 		mov     eax, g_DIHookCtrl
